@@ -355,30 +355,30 @@ fn write_token(tok token.Token, typ HighlightTokenTyp, mut buf strings.Builder) 
 			buf.write_byte(`$`)
 		}
 		.opening_string {
-			buf.write_string("'${tok.lit}")
+			buf.write_string(html.escape("'${tok.lit}"))
 		}
 		.closing_string {
 			// A string as the next token of the expression
 			// inside the string interpolation indicates that
 			// this is the closing of string interpolation
-			buf.write_string("${tok.lit}'")
+			buf.write_string(html.escape("${tok.lit}'"))
 		}
 		.string {
-			buf.write_string("'${tok.lit}'")
+			buf.write_string(html.escape("'${tok.lit}'"))
 		}
 		.char {
-			buf.write_string('`${tok.lit}`')
+			buf.write_string(html.escape('`${tok.lit}`'))
 		}
 		.comment {
 			buf.write_string('//')
 			if tok.lit != '' && tok.lit[0] == 1 {
-				buf.write_string(tok.lit[1..])
+				buf.write_string(html.escape(tok.lit[1..]))
 			} else {
-				buf.write_string(tok.lit)
+				buf.write_string(html.escape(tok.lit))
 			}
 		}
 		else {
-			buf.write_string(tok.lit)
+			buf.write_string(html.escape(tok.lit))
 		}
 	}
 }
