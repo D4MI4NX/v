@@ -244,6 +244,30 @@ fn (mut g Gen) gen_enum_to_str(utyp ast.Type, sym ast.TypeSymbol, enum_var strin
 }
 
 @[inline]
+fn (mut g Gen) gen_enum_flag_to_str(utyp ast.Type, sym ast.TypeSymbol, enum_var string, result_var string, ident string,
+	mut enc strings.Builder) {
+	enum_prefix := g.gen_enum_prefix(utyp.clear_flag(.option))
+	enc.writeln('${ident}string concat = _S("");')
+	enc.writeln('${ident}string sep = _S(" | ");')
+	enc.writeln('${ident}int first = 1;')
+	for val in (sym.info as ast.Enum).vals {
+		// read [json:] attr from the Enum value
+		attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
+			ast.Attr{}
+		}
+		key := if attr.has_arg { attr.arg } else { val }
+		enc.writeln('${ident}if (${enum_prefix}${val} & ${enum_var}) {')
+		enc.writeln('${ident}\tif (!first) {')
+		enc.writeln('${ident}\t\tconcat = builtin__string__plus(concat, sep);')
+		enc.writeln('${ident}\t}')
+		enc.writeln('${ident}\tconcat = builtin__string__plus(concat, _S("${key}"));')
+		enc.writeln('${ident}\tfirst = 0;')
+		enc.writeln('${ident}}')
+	}
+	enc.writeln('${ident}${result_var} = json__encode_string(concat);')
+}
+
+@[inline]
 fn (mut g Gen) gen_str_to_enum(utyp ast.Type, sym ast.TypeSymbol, val_var string, result_var string, ident string,
 	mut dec strings.Builder) {
 	enum_prefix := g.gen_enum_prefix(utyp.clear_flag(.option))
@@ -282,6 +306,16 @@ fn (mut g Gen) is_enum_as_int(sym ast.TypeSymbol) bool {
 }
 
 @[inline]
+fn (mut g Gen) is_enum_flag(sym ast.TypeSymbol) bool {
+	if enum_decl := g.table.enum_decls[sym.name] {
+		if _ := enum_decl.attrs.find_first('flag') {
+			return true
+		}
+	}
+	return false
+}
+
+@[inline]
 fn (mut g Gen) gen_enum_enc_dec(utyp ast.Type, sym ast.TypeSymbol, mut enc strings.Builder, mut dec strings.Builder) {
 	is_option := utyp.has_flag(.option)
 
@@ -295,15 +329,25 @@ fn (mut g Gen) gen_enum_enc_dec(utyp ast.Type, sym ast.TypeSymbol, mut enc strin
 			enc.writeln('\to = ${js_enc_name('u64')}(val);')
 		}
 	} else {
+		is_flag := g.is_enum_flag(sym)
 		tmp := g.new_tmp_var()
 		dec.writeln('\tstring ${tmp} = ${js_dec_name('string')}(root);')
 		if is_option {
 			g.gen_str_to_enum(utyp, sym, tmp, '&res', '\t', mut dec)
-			g.gen_enum_to_str(utyp, sym, '*(${g.base_type(utyp)}*)val.data', 'o', '\t\t', mut
-				enc)
+			if is_flag {
+				g.gen_enum_flag_to_str(utyp, sym, '*(${g.base_type(utyp)}*)val.data',
+					'o', '\t\t', mut enc)
+			} else {
+				g.gen_enum_to_str(utyp, sym, '*(${g.base_type(utyp)}*)val.data', 'o',
+					'\t\t', mut enc)
+			}
 		} else {
 			g.gen_str_to_enum(utyp, sym, tmp, 'res', '\t', mut dec)
-			g.gen_enum_to_str(utyp, sym, 'val', 'o', '\t', mut enc)
+			if is_flag {
+				g.gen_enum_flag_to_str(utyp, sym, 'val', 'o', '\t', mut enc)
+			} else {
+				g.gen_enum_to_str(utyp, sym, 'val', 'o', '\t', mut enc)
+			}
 		}
 	}
 }
