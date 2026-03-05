@@ -266,25 +266,50 @@ fn (mut g Gen) gen_str_to_enum(utyp ast.Type, sym ast.TypeSymbol, val_var string
 	mut dec strings.Builder) {
 	enum_prefix := g.gen_enum_prefix(utyp.clear_flag(.option))
 	is_option := utyp.has_flag(.option)
-	for k, val in (sym.info as ast.Enum).vals {
-		// read [json:] attr from the Enum value
-		attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
-			ast.Attr{}
+	if g.is_enum_flag(sym) {
+		dec.writeln('${ident}Array_string values = builtin__string_split(${val_var}, _S(" | "));')
+		dec.writeln('${ident}for (int i = 0; i < values.len; ++i) {')
+		dec.writeln('${ident}\tstring flag = ((string*)values.data)[i];')
+		for _, val in (sym.info as ast.Enum).vals {
+			// read [json:] attr from the Enum value
+			attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
+				ast.Attr{}
+			}
+			dec.write_string('${ident}\tif (builtin__string__eq(_S("${val}"), flag)')
+			if attr.has_arg {
+				dec.write_string(' || builtin__string__eq(_S("${attr.arg}"), flag)')
+			}
+			dec.write_string(')\t')
+			if is_option {
+				base_typ := g.base_type(utyp)
+				dec.writeln('builtin___option_ok(&(${base_typ}[]){ ${enum_prefix}${val} }, (${option_name}*)${result_var}, sizeof(${base_typ}));')
+			} else {
+				dec.writeln('${result_var} |= ${enum_prefix}${val};')
+			}
 		}
-		if k == 0 {
-			dec.write_string('${ident}if (builtin__string__eq(_S("${val}"), ${val_var})')
-		} else {
-			dec.write_string('${ident}else if (builtin__string__eq(_S("${val}"), ${val_var})')
-		}
-		if attr.has_arg {
-			dec.write_string(' || builtin__string__eq(_S("${attr.arg}"), ${val_var})')
-		}
-		dec.write_string(')\t')
-		if is_option {
-			base_typ := g.base_type(utyp)
-			dec.writeln('builtin___option_ok(&(${base_typ}[]){ ${enum_prefix}${val} }, (${option_name}*)${result_var}, sizeof(${base_typ}));')
-		} else {
-			dec.writeln('${result_var} = ${enum_prefix}${val};')
+		dec.writeln('${ident}}')
+	} else {
+		for k, val in (sym.info as ast.Enum).vals {
+			// read [json:] attr from the Enum value
+			attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
+				ast.Attr{}
+			}
+
+			if k == 0 {
+				dec.write_string('${ident}if (builtin__string__eq(_S("${val}"), ${val_var})')
+			} else {
+				dec.write_string('${ident}else if (builtin__string__eq(_S("${val}"), ${val_var})')
+			}
+			if attr.has_arg {
+				dec.write_string(' || builtin__string__eq(_S("${attr.arg}"), ${val_var})')
+			}
+			dec.write_string(')\t')
+			if is_option {
+				base_typ := g.base_type(utyp)
+				dec.writeln('builtin___option_ok(&(${base_typ}[]){ ${enum_prefix}${val} }, (${option_name}*)${result_var}, sizeof(${base_typ}));')
+			} else {
+				dec.writeln('${result_var} = ${enum_prefix}${val};')
+			}
 		}
 	}
 }
