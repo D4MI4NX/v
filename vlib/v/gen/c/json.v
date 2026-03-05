@@ -227,44 +227,38 @@ ${enc_fn_dec} {
 fn (mut g Gen) gen_enum_to_str(utyp ast.Type, sym ast.TypeSymbol, enum_var string, result_var string, ident string,
 	mut enc strings.Builder) {
 	enum_prefix := g.gen_enum_prefix(utyp.clear_flag(.option))
-	enc.writeln('${ident}switch (${enum_var}) {')
-	for val in (sym.info as ast.Enum).vals {
-		enc.write_string('${ident}\tcase ${enum_prefix}${val}:\t')
-		// read [json:] attr from the Enum value
-		attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
-			ast.Attr{}
+	if g.is_enum_flag(sym) {
+		enc.writeln('${ident}string concat = _S("");')
+		enc.writeln('${ident}string sep = _S(" | ");')
+		enc.writeln('${ident}int first = 1;')
+		for val in (sym.info as ast.Enum).vals {
+			// read [json:] attr from the Enum value
+			attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
+				ast.Attr{}
+			}
+			key := if attr.has_arg { attr.arg } else { val }
+			enc.writeln('${ident}if (${enum_prefix}${val} & ${enum_var}) {')
+			enc.writeln('${ident}\tif (!first) {')
+			enc.writeln('${ident}\t\tconcat = builtin__string__plus(concat, sep);')
+			enc.writeln('${ident}\t}')
+			enc.writeln('${ident}\tconcat = builtin__string__plus(concat, _S("${key}"));')
+			enc.writeln('${ident}\tfirst = 0;')
+			enc.writeln('${ident}}')
 		}
-		if attr.has_arg {
-			enc.writeln('${result_var} = json__encode_string(_S("${attr.arg}")); break;')
-		} else {
-			enc.writeln('${result_var} = json__encode_string(_S("${val}")); break;')
+		enc.writeln('${ident}${result_var} = json__encode_string(concat);')
+	} else {
+		enc.writeln('${ident}switch (${enum_var}) {')
+		for val in (sym.info as ast.Enum).vals {
+			enc.write_string('${ident}\tcase ${enum_prefix}${val}:\t')
+			// read [json:] attr from the Enum value
+			attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
+				ast.Attr{}
+			}
+			key := if attr.has_arg { attr.arg } else { val }
+			enc.writeln('${result_var} = json__encode_string(_S("${key}")); break;')
 		}
-	}
-	enc.writeln('${ident}}')
-}
-
-@[inline]
-fn (mut g Gen) gen_enum_flag_to_str(utyp ast.Type, sym ast.TypeSymbol, enum_var string, result_var string, ident string,
-	mut enc strings.Builder) {
-	enum_prefix := g.gen_enum_prefix(utyp.clear_flag(.option))
-	enc.writeln('${ident}string concat = _S("");')
-	enc.writeln('${ident}string sep = _S(" | ");')
-	enc.writeln('${ident}int first = 1;')
-	for val in (sym.info as ast.Enum).vals {
-		// read [json:] attr from the Enum value
-		attr := g.table.enum_decls[sym.name].fields.filter(it.name == val)[0].attrs.find_first('json') or {
-			ast.Attr{}
-		}
-		key := if attr.has_arg { attr.arg } else { val }
-		enc.writeln('${ident}if (${enum_prefix}${val} & ${enum_var}) {')
-		enc.writeln('${ident}\tif (!first) {')
-		enc.writeln('${ident}\t\tconcat = builtin__string__plus(concat, sep);')
-		enc.writeln('${ident}\t}')
-		enc.writeln('${ident}\tconcat = builtin__string__plus(concat, _S("${key}"));')
-		enc.writeln('${ident}\tfirst = 0;')
 		enc.writeln('${ident}}')
 	}
-	enc.writeln('${ident}${result_var} = json__encode_string(concat);')
 }
 
 @[inline]
@@ -329,25 +323,15 @@ fn (mut g Gen) gen_enum_enc_dec(utyp ast.Type, sym ast.TypeSymbol, mut enc strin
 			enc.writeln('\to = ${js_enc_name('u64')}(val);')
 		}
 	} else {
-		is_flag := g.is_enum_flag(sym)
 		tmp := g.new_tmp_var()
 		dec.writeln('\tstring ${tmp} = ${js_dec_name('string')}(root);')
 		if is_option {
 			g.gen_str_to_enum(utyp, sym, tmp, '&res', '\t', mut dec)
-			if is_flag {
-				g.gen_enum_flag_to_str(utyp, sym, '*(${g.base_type(utyp)}*)val.data',
-					'o', '\t\t', mut enc)
-			} else {
-				g.gen_enum_to_str(utyp, sym, '*(${g.base_type(utyp)}*)val.data', 'o',
-					'\t\t', mut enc)
-			}
+			g.gen_enum_to_str(utyp, sym, '*(${g.base_type(utyp)}*)val.data', 'o', '\t\t', mut
+				enc)
 		} else {
 			g.gen_str_to_enum(utyp, sym, tmp, 'res', '\t', mut dec)
-			if is_flag {
-				g.gen_enum_flag_to_str(utyp, sym, 'val', 'o', '\t', mut enc)
-			} else {
-				g.gen_enum_to_str(utyp, sym, 'val', 'o', '\t', mut enc)
-			}
+			g.gen_enum_to_str(utyp, sym, 'val', 'o', '\t', mut enc)
 		}
 	}
 }
@@ -488,13 +472,7 @@ fn (mut g Gen) gen_sumtype_enc_dec(utyp ast.Type, sym ast.TypeSymbol, mut enc st
 					enc.writeln('\t\tcJSON_free(o);')
 					tmp2 := g.new_tmp_var()
 					enc.writeln('\t\tu64 ${tmp2} = *${var_data}${field_op}_${variant_typ};')
-					if g.is_enum_flag(variant_sym) {
-						g.gen_enum_flag_to_str(variant, variant_sym, tmp2, 'o', '\t\t', mut
-							enc)
-					} else {
-						g.gen_enum_to_str(variant, variant_sym, tmp2, 'o', '\t\t', mut
-							enc)
-					}
+					g.gen_enum_to_str(variant, variant_sym, tmp2, 'o', '\t\t', mut enc)
 				}
 			} else if variant_sym.name == 'time.Time' {
 				enc.writeln('\t\tcJSON_AddItemToObject(o, "_type", cJSON_CreateString("${unmangled_variant_name}"));')
@@ -529,13 +507,8 @@ fn (mut g Gen) gen_sumtype_enc_dec(utyp ast.Type, sym ast.TypeSymbol, mut enc st
 					dec.writeln('\t\t${variant_typ} value;')
 					tmp2 := g.new_tmp_var()
 					dec.writeln('\t\tstring ${tmp2} = json__decode_string(jsonroot_${tmp});')
-					if g.is_enum_flag(variant_sym) {
-						g.gen_enum_flag_to_str(variant, variant_sym, tmp2, 'value', '\t\t', mut
-							dec)
-					} else {
-						g.gen_enum_to_str(variant, variant_sym, tmp2, 'value', '\t\t', mut
-							dec)
-					}
+					g.gen_enum_to_str(variant, variant_sym, tmp2, 'value', '\t\t', mut
+						dec)
 				}
 			} else if variant_sym.name == 'time.Time' {
 				gen_js_get(ret_styp, tmp, unmangled_variant_name, mut dec, true)
@@ -997,25 +970,15 @@ fn (mut g Gen) gen_struct_enc_dec(utyp ast.Type, type_info ast.TypeInfo, styp st
 				if field.typ.has_flag(.option) {
 					enc.writeln('${indent}\t{')
 					enc.writeln('${indent}\t\tcJSON *enum_val;')
-					if g.is_enum_flag(field_sym) {
-						g.gen_enum_flag_to_str(field.typ, field_sym, '*(${g.base_type(field.typ)}*)${prefix_enc}${op}${c_name(field.name)}.data',
-							'enum_val', '${indent}\t\t', mut enc)
-					} else {
-						g.gen_enum_to_str(field.typ, field_sym, '*(${g.base_type(field.typ)}*)${prefix_enc}${op}${c_name(field.name)}.data',
-							'enum_val', '${indent}\t\t', mut enc)
-					}
+					g.gen_enum_to_str(field.typ, field_sym, '*(${g.base_type(field.typ)}*)${prefix_enc}${op}${c_name(field.name)}.data',
+						'enum_val', '${indent}\t\t', mut enc)
 					enc.writeln('${indent}\t\tcJSON_AddItemToObject(o, "${name}", enum_val);')
 					enc.writeln('${indent}\t}')
 				} else {
 					enc.writeln('${indent}\t{')
 					enc.writeln('${indent}\t\tcJSON *enum_val;')
-					if g.is_enum_flag(field_sym) {
-						g.gen_enum_flag_to_str(field.typ, field_sym, '${prefix_enc}${op}${c_name(field.name)}',
-							'enum_val', '${indent}\t\t', mut enc)
-					} else {
-						g.gen_enum_to_str(field.typ, field_sym, '${prefix_enc}${op}${c_name(field.name)}',
-							'enum_val', '${indent}\t\t', mut enc)
-					}
+					g.gen_enum_to_str(field.typ, field_sym, '${prefix_enc}${op}${c_name(field.name)}',
+						'enum_val', '${indent}\t\t', mut enc)
 					enc.writeln('${indent}\t\tcJSON_AddItemToObject(o, "${name}", enum_val);')
 					enc.writeln('${indent}\t}')
 				}
