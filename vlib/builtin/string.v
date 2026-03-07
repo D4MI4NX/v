@@ -932,7 +932,7 @@ pub fn (s string) rsplit_any(delim string) []string {
 // If `delim` is empty the string is split by it's characters.
 // Example: assert 'DEF'.split('') == ['D','E','F']
 // Example: assert 'A B C'.split(' ') == ['A','B','C']
-@[inline]
+@[inline; markused]
 pub fn (s string) split(delim string) []string {
 	return s.split_nth(delim, 0)
 }
