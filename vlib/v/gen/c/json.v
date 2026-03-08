@@ -267,7 +267,9 @@ fn (mut g Gen) gen_str_to_enum(utyp ast.Type, sym ast.TypeSymbol, val_var string
 	enum_prefix := g.gen_enum_prefix(utyp.clear_flag(.option))
 	is_option := utyp.has_flag(.option)
 	if g.is_enum_flag(sym) {
+		base_typ := g.base_type(utyp)
 		dec.writeln('${ident}Array_string values = builtin__string_split(${val_var}, _S(" | "));')
+		dec.writeln('${ident}${base_typ} result = 0;')
 		dec.writeln('${ident}for (int i = 0; i < values.len; ++i) {')
 		dec.writeln('${ident}\tstring flag = ((string*)values.data)[i];')
 		for _, val in (sym.info as ast.Enum).vals {
@@ -280,14 +282,14 @@ fn (mut g Gen) gen_str_to_enum(utyp ast.Type, sym ast.TypeSymbol, val_var string
 				dec.write_string(' || builtin__string__eq(_S("${attr.arg}"), flag)')
 			}
 			dec.write_string(')\t')
-			if is_option {
-				base_typ := g.base_type(utyp)
-				dec.writeln('builtin___option_ok(&(${base_typ}[]){ ${enum_prefix}${val} }, (${option_name}*)${result_var}, sizeof(${base_typ}));')
-			} else {
-				dec.writeln('${result_var} |= ${enum_prefix}${val};')
-			}
+			dec.writeln('result |= ${enum_prefix}${val};')
 		}
 		dec.writeln('${ident}}')
+		if is_option {
+			dec.writeln('${ident}builtin___option_ok(&(${base_typ}[]){ result }, (${option_name}*)${result_var}, sizeof(${base_typ}));')
+		} else {
+			dec.writeln('${ident}${result_var} = result;')
+		}
 	} else {
 		for k, val in (sym.info as ast.Enum).vals {
 			// read [json:] attr from the Enum value
